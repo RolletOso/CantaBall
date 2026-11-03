@@ -198,7 +198,7 @@ export class CantaBallScene extends Phaser.Scene {
     if (length < 4) return;
     const force = 0.0009 + this.power*0.0031;
     this.cantasThatTouchedBallThisShot.clear();
-    this.matter.applyForce(this.selected.body, start, { x: dx/length*force, y: dy/length*force });
+    this.matter.applyForce(this.selected.body, { x: dx/length*force, y: dy/length*force });
     this.shotInProgress = true;
     this.clearSelection();
     const turn = document.querySelector('#turn-label');
@@ -209,8 +209,8 @@ export class CantaBallScene extends Phaser.Scene {
   private onCollisionStart(event: MatterJS.IEventCollision<MatterJS.BodyType>) {
     // Record ball contacts before checking canta-to-canta contacts in this step.
     for (const pair of event.pairs) {
-      const a = pair.bodyA;
-      const b = pair.bodyB;
+      const a = pair.bodyA as unknown as { id: number; label?: string; isStatic: boolean };
+      const b = pair.bodyB as unknown as { id: number; label?: string; isStatic: boolean };
       if (a.label !== 'ball' && b.label !== 'ball') continue;
       const other = a.label === 'ball' ? b : a;
       const piece = this.pieces.find(p => p.body.id === other.id);
