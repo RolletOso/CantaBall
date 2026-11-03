@@ -1,6 +1,11 @@
 export type Team = 'blue' | 'red';
 
-export type MatchPhase = 'ready' | 'shot' | 'set-piece-pending';
+export type MatchPhase =
+  | 'ready'
+  | 'shot'
+  | 'free-kick-attacker-setup'
+  | 'free-kick-defender-setup'
+  | 'free-kick-shot';
 
 export interface MatchState {
   scores: Record<Team, number>;
@@ -8,6 +13,7 @@ export interface MatchState {
   phase: MatchPhase;
   selectedCantaId: string | null;
   foulAwardedTo: Team | null;
+  isFreeKickShot: boolean;
 }
 
 export const INITIAL_MATCH_STATE: MatchState = {
@@ -16,6 +22,7 @@ export const INITIAL_MATCH_STATE: MatchState = {
   phase: 'ready',
   selectedCantaId: null,
   foulAwardedTo: null,
+  isFreeKickShot: false,
 };
 
 export function otherTeam(team: Team): Team {
@@ -23,13 +30,14 @@ export function otherTeam(team: Team): Team {
 }
 
 export function startShot(state: MatchState, cantaId: string): MatchState {
-  if (state.phase !== 'ready') return state;
+  if (state.phase !== 'ready' && state.phase !== 'free-kick-shot') return state;
 
   return {
     ...state,
     phase: 'shot',
     selectedCantaId: cantaId,
     foulAwardedTo: null,
+    isFreeKickShot: state.phase === 'free-kick-shot',
   };
 }
 
@@ -49,7 +57,23 @@ export function finishShot(state: MatchState): MatchState {
   if (state.phase !== 'shot') return state;
 
   if (state.foulAwardedTo) {
-    return { ...state, phase: 'set-piece-pending', selectedCantaId: null };
+    return {
+      ...state,
+      phase: 'free-kick-attacker-setup',
+      selectedCantaId: null,
+      isFreeKickShot: false,
+    };
+  }
+
+  if (state.isFreeKickShot) {
+    return {
+      ...state,
+      activeTeam: otherTeam(state.activeTeam),
+      phase: 'ready',
+      selectedCantaId: null,
+      foulAwardedTo: null,
+      isFreeKickShot: false,
+    };
   }
 
   return {
@@ -58,6 +82,18 @@ export function finishShot(state: MatchState): MatchState {
     phase: 'ready',
     selectedCantaId: null,
   };
+}
+
+export function advanceFreeKickSetup(state: MatchState): MatchState {
+  if (state.phase === 'free-kick-attacker-setup') {
+    return { ...state, phase: 'free-kick-defender-setup', selectedCantaId: null };
+  }
+
+  if (state.phase === 'free-kick-defender-setup') {
+    return { ...state, phase: 'free-kick-shot', selectedCantaId: null };
+  }
+
+  return state;
 }
 
 export function teamLabel(team: Team): string {
