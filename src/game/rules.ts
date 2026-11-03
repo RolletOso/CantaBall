@@ -78,6 +78,7 @@ export function finishShot(state: MatchState): MatchState {
       selectedCantaId: null,
       foulAwardedTo: null,
       isFreeKickShot: false,
+      isKickoffShot: false,
     };
   }
 
