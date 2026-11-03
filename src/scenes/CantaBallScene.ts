@@ -504,6 +504,7 @@ export class CantaBallScene extends Phaser.Scene {
     this.stopAllBodies();
 
     if (isGoal) {
+      this.keeperMovePending = false;
       const scoringTeam: Team = crossedLeft ? 'red' : 'blue';
       this.match = recordGoal(this.match, scoringTeam);
       this.resetBall(W / 2, H / 2);
