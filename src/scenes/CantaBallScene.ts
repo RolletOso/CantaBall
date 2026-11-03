@@ -1,8 +1,10 @@
 import Phaser from 'phaser';
 import {
   INITIAL_MATCH_STATE,
+  advanceFreeKickSetup,
   awardFoul,
   finishShot,
+  otherTeam,
   startShot,
   teamLabel,
   type MatchState,
@@ -16,6 +18,8 @@ type Piece = {
   body: MatterJS.BodyType;
 };
 
+type Position = { x: number; y: number };
+
 const W = 900;
 const H = 600;
 const PITCH = { left: 42, right: 858, top: 38, bottom: 562 };
@@ -25,18 +29,30 @@ const KEEPER_RADIUS = 15;
 const SETTLED_SPEED = 0.16;
 const SETTLED_DURATION_MS = 250;
 const MIN_SHOT_DURATION_MS = 450;
+const ARRANGEMENT_SECONDS = 20;
+const MAX_ARRANGED_CANTAS = 3;
+const MIN_ATTACKER_BALL_DISTANCE = 26;
+const MIN_DEFENDER_BALL_DISTANCE = 52;
+const MIN_PIECE_SPACING = 30;
 
 export class CantaBallScene extends Phaser.Scene {
   private pieces: Piece[] = [];
   private ball!: MatterJS.BodyType;
   private selected: Piece | null = null;
   private aimPoint: Phaser.Math.Vector2 | null = null;
+  private draggedPiece: Piece | null = null;
+  private dragStart: Position | null = null;
   private power = 0.45;
   private shotInProgress = false;
   private shotStartedAt = 0;
   private settledSince: number | null = null;
   private foulText = '';
   private cantasThatTouchedBallThisShot = new Set<number>();
+  private arrangedCantaIds = new Set<string>();
+  private arrangementEndsAt = 0;
+  private lastDisplayedSeconds = -1;
+  private foulBallPosition: Position | null = null;
+  private ballFrozenForSetPiece = false;
   private match: MatchState = { ...INITIAL_MATCH_STATE, scores: { ...INITIAL_MATCH_STATE.scores } };
   private graphics!: Phaser.GameObjects.Graphics;
 
@@ -51,6 +67,8 @@ export class CantaBallScene extends Phaser.Scene {
     this.matter.world.on('collisionstart', this.onCollisionStart, this);
     this.input.on('pointerdown', this.onPointerDown, this);
     this.input.on('pointermove', this.onPointerMove, this);
+    this.input.on('pointerup', this.onPointerUp, this);
+    this.input.on('pointerupoutside', this.onPointerUp, this);
 
     const powerInput = document.querySelector<HTMLInputElement>('#power');
     powerInput?.addEventListener('input', () => {
@@ -60,6 +78,7 @@ export class CantaBallScene extends Phaser.Scene {
     });
     document.querySelector('#cancel-button')?.addEventListener('click', () => this.clearSelection());
     document.querySelector('#flick-button')?.addEventListener('click', () => this.flick());
+    document.querySelector('#arrangement-done')?.addEventListener('click', () => this.finishArrangementPhase());
     this.refreshControls();
   }
 
@@ -68,6 +87,11 @@ export class CantaBallScene extends Phaser.Scene {
     this.drawPieces();
     this.drawBall();
     this.drawAim();
+
+    if (this.isArrangementPhase()) {
+      this.updateArrangementTimer();
+      return;
+    }
 
     if (!this.shotInProgress) return;
 
@@ -134,8 +158,6 @@ export class CantaBallScene extends Phaser.Scene {
     ];
     blue.forEach(([x,y], i) => this.addPiece('blue-'+(i+1), 'blue', 'outfield', x, y, CANTA_RADIUS));
     red.forEach(([x,y], i) => this.addPiece('red-'+(i+1), 'red', 'outfield', x, y, CANTA_RADIUS));
-
-    // Temporary placeholder until the custom six-canta goalkeeper artwork is supplied.
     this.addPiece('blue-keeper', 'blue', 'keeper', PITCH.left + 22, H/2, KEEPER_RADIUS);
     this.addPiece('red-keeper', 'red', 'keeper', PITCH.right - 22, H/2, KEEPER_RADIUS);
   }
@@ -157,7 +179,7 @@ export class CantaBallScene extends Phaser.Scene {
       const radius = piece.kind === 'keeper' ? KEEPER_RADIUS : CANTA_RADIUS;
       const color = piece.team === 'blue' ? 0x2d83ee : 0xe64b4b;
       this.graphics.fillStyle(color, 1).fillCircle(x, y, radius);
-      this.graphics.lineStyle(piece === this.selected ? 4 : 2, piece === this.selected ? 0xd5f36a : 0xf4f5ee, 0.98);
+      this.graphics.lineStyle(piece === this.selected || piece === this.draggedPiece ? 4 : 2, piece === this.selected || piece === this.draggedPiece ? 0xd5f36a : 0xf4f5ee, 0.98);
       this.graphics.strokeCircle(x, y, radius);
       this.graphics.fillStyle(0xffffff, 0.38).fillCircle(x-3, y-3, Math.max(2, radius*0.22));
     }
@@ -170,10 +192,36 @@ export class CantaBallScene extends Phaser.Scene {
     this.graphics.lineStyle(1, 0x34443a, 0.8).strokeCircle(x, y, BALL_RADIUS);
   }
 
-  private onPointerDown(pointer: Phaser.Input.Pointer) {
-    if (this.shotInProgress || this.match.phase !== 'ready') return;
+  private isArrangementPhase() {
+    return this.match.phase === 'free-kick-attacker-setup' || this.match.phase === 'free-kick-defender-setup';
+  }
 
+  private setupTeam(): Team {
+    return this.match.phase === 'free-kick-defender-setup'
+      ? otherTeam(this.match.activeTeam)
+      : this.match.activeTeam;
+  }
+
+  private onPointerDown(pointer: Phaser.Input.Pointer) {
     const point = new Phaser.Math.Vector2(pointer.worldX, pointer.worldY);
+
+    if (this.isArrangementPhase()) {
+      if (this.draggedPiece) return;
+      const team = this.setupTeam();
+      const hit = this.pieces.find(piece =>
+        piece.team === team &&
+        piece.kind === 'outfield' &&
+        Phaser.Math.Distance.Between(point.x, point.y, piece.body.position.x, piece.body.position.y) <= CANTA_RADIUS + 8
+      );
+      if (!hit) return;
+      if (!this.arrangedCantaIds.has(hit.id) && this.arrangedCantaIds.size >= MAX_ARRANGED_CANTAS) return;
+
+      this.draggedPiece = hit;
+      this.dragStart = { x: hit.body.position.x, y: hit.body.position.y };
+      return;
+    }
+
+    if (this.shotInProgress || this.match.phase !== 'ready' && this.match.phase !== 'free-kick-shot') return;
     const hit = this.pieces.find(piece => {
       if (piece.team !== this.match.activeTeam || piece.kind !== 'outfield') return false;
       return Phaser.Math.Distance.Between(point.x, point.y, piece.body.position.x, piece.body.position.y) <= CANTA_RADIUS + 7;
@@ -189,13 +237,49 @@ export class CantaBallScene extends Phaser.Scene {
   }
 
   private onPointerMove(pointer: Phaser.Input.Pointer) {
-    if (this.selected && pointer.isDown && !this.shotInProgress && this.match.phase === 'ready') {
+    if (this.draggedPiece && this.isArrangementPhase()) {
+      this.tryMoveArrangedPiece(this.draggedPiece, pointer.worldX, pointer.worldY);
+      return;
+    }
+
+    if (this.selected && pointer.isDown && !this.shotInProgress &&
+      (this.match.phase === 'ready' || this.match.phase === 'free-kick-shot')) {
       this.aimPoint = new Phaser.Math.Vector2(pointer.worldX, pointer.worldY);
     }
   }
 
+  private onPointerUp() {
+    if (!this.draggedPiece || !this.dragStart) return;
+    const current = this.draggedPiece.body.position;
+    const moved = Phaser.Math.Distance.Between(this.dragStart.x, this.dragStart.y, current.x, current.y) >= 6;
+    if (moved) this.arrangedCantaIds.add(this.draggedPiece.id);
+    this.draggedPiece = null;
+    this.dragStart = null;
+    this.updateArrangementMoveCount();
+  }
+
+  private tryMoveArrangedPiece(piece: Piece, rawX: number, rawY: number) {
+    const x = Phaser.Math.Clamp(rawX, PITCH.left + CANTA_RADIUS, PITCH.right - CANTA_RADIUS);
+    const y = Phaser.Math.Clamp(rawY, PITCH.top + CANTA_RADIUS, PITCH.bottom - CANTA_RADIUS);
+    const minimumBallDistance = this.match.phase === 'free-kick-defender-setup'
+      ? MIN_DEFENDER_BALL_DISTANCE
+      : MIN_ATTACKER_BALL_DISTANCE;
+
+    if (Phaser.Math.Distance.Between(x, y, this.ball.position.x, this.ball.position.y) < minimumBallDistance) return;
+
+    for (const other of this.pieces) {
+      if (other === piece) continue;
+      const distance = Phaser.Math.Distance.Between(x, y, other.body.position.x, other.body.position.y);
+      if (distance < MIN_PIECE_SPACING) return;
+    }
+
+    this.matter.body.setPosition(piece.body, { x, y });
+    this.matter.body.setVelocity(piece.body, { x: 0, y: 0 });
+  }
+
   private drawAim() {
-    if (!this.selected || !this.aimPoint || this.match.phase !== 'ready') return;
+    if (!this.selected || !this.aimPoint ||
+      (this.match.phase !== 'ready' && this.match.phase !== 'free-kick-shot')) return;
 
     const start = this.selected.body.position;
     const dx = start.x - this.aimPoint.x;
@@ -212,7 +296,8 @@ export class CantaBallScene extends Phaser.Scene {
   }
 
   private flick() {
-    if (!this.selected || !this.aimPoint || this.shotInProgress || this.match.phase !== 'ready') return;
+    if (!this.selected || !this.aimPoint || this.shotInProgress ||
+      (this.match.phase !== 'ready' && this.match.phase !== 'free-kick-shot')) return;
     if (this.selected.team !== this.match.activeTeam) return;
 
     const start = this.selected.body.position;
@@ -236,7 +321,6 @@ export class CantaBallScene extends Phaser.Scene {
   private onCollisionStart(event: MatterJS.IEventCollision<MatterJS.BodyType>) {
     if (!this.shotInProgress || this.match.phase !== 'shot' || this.match.foulAwardedTo) return;
 
-    // Record ball contacts first, then judge canta-to-canta collisions.
     for (const pair of event.pairs) {
       const a = pair.bodyA as unknown as { id: number; label?: string };
       const b = pair.bodyB as unknown as { id: number; label?: string };
@@ -261,13 +345,45 @@ export class CantaBallScene extends Phaser.Scene {
       if (eitherCantaTouchedBall) continue;
 
       this.match = awardFoul(this.match, this.match.activeTeam);
-      this.foulText = 'FOUL: cantas collided before ball contact';
-      this.setStatus(
-        'FOUL — PLAY STOPPING',
-        'Neither canta had touched the ball before contact. The other team has been awarded a free kick.'
-      );
+      if (this.match.foulAwardedTo) {
+        this.foulBallPosition = { x: this.ball.position.x, y: this.ball.position.y };
+        this.freezeBallForSetPiece();
+        this.foulText = 'FOUL: cantas collided before ball contact';
+        this.setStatus(
+          'FOUL — PLAY STOPPING',
+          'Neither canta touched the ball before contact. The other team has been awarded a free kick.'
+        );
+      }
       break;
     }
+  }
+
+  private freezeBallForSetPiece() {
+    if (this.ballFrozenForSetPiece) return;
+    this.matter.body.setVelocity(this.ball, { x: 0, y: 0 });
+    this.matter.body.setAngularVelocity(this.ball, 0);
+    this.matter.body.setStatic(this.ball, true);
+    this.ballFrozenForSetPiece = true;
+  }
+
+  private freezeAllPiecesForArrangement() {
+    for (const piece of this.pieces) {
+      this.matter.body.setVelocity(piece.body, { x: 0, y: 0 });
+      this.matter.body.setAngularVelocity(piece.body, 0);
+      this.matter.body.setStatic(piece.body, true);
+    }
+    if (this.foulBallPosition) {
+      this.matter.body.setPosition(this.ball, this.foulBallPosition);
+    }
+    this.freezeBallForSetPiece();
+  }
+
+  private releaseSetPieceBodies() {
+    for (const piece of this.pieces) this.matter.body.setStatic(piece.body, false);
+    this.matter.body.setStatic(this.ball, false);
+    this.matter.body.setVelocity(this.ball, { x: 0, y: 0 });
+    this.matter.body.setAngularVelocity(this.ball, 0);
+    this.ballFrozenForSetPiece = false;
   }
 
   private allPiecesSettled() {
@@ -283,16 +399,69 @@ export class CantaBallScene extends Phaser.Scene {
     this.match = finishShot(this.match);
     this.clearSelection();
 
-    if (this.match.phase === 'set-piece-pending' && this.match.foulAwardedTo) {
-      const awarded = teamLabel(this.match.foulAwardedTo);
-      this.setStatus(
-        awarded + ' TEAM FREE KICK',
-        awarded + ' has the free kick. The set-piece arrangement controls are coming in the next development stage.'
-      );
+    if (this.match.phase === 'free-kick-attacker-setup') {
+      this.beginArrangementPhase();
       return;
     }
 
-    this.setStatus(teamLabel(this.match.activeTeam) + " TEAM'S TURN", 'Select one of your own outfield cantas, aim, adjust power and flick.');
+    if (this.match.phase === 'ready') {
+      this.foulBallPosition = null;
+      this.foulText = '';
+      this.setStatus(teamLabel(this.match.activeTeam) + " TEAM'S TURN", 'Select one of your own outfield cantas, aim, adjust power and flick.');
+    }
+  }
+
+  private beginArrangementPhase() {
+    this.freezeAllPiecesForArrangement();
+    this.arrangedCantaIds.clear();
+    this.draggedPiece = null;
+    this.dragStart = null;
+    this.arrangementEndsAt = this.time.now + ARRANGEMENT_SECONDS * 1000;
+    this.lastDisplayedSeconds = -1;
+    this.updateArrangementTimer();
+    this.setStatus(
+      teamLabel(this.setupTeam()) + ' TEAM — SET UP FREE KICK',
+      'Drag up to three of your outfield cantas into position. The ball is fixed at the foul location.'
+    );
+    this.refreshControls();
+  }
+
+  private updateArrangementTimer() {
+    const seconds = Math.max(0, Math.ceil((this.arrangementEndsAt - this.time.now) / 1000));
+    const timer = document.querySelector('#arrangement-timer');
+    if (timer && seconds !== this.lastDisplayedSeconds) {
+      timer.textContent = seconds + 's';
+      this.lastDisplayedSeconds = seconds;
+    }
+    if (seconds <= 0) this.finishArrangementPhase();
+  }
+
+  private finishArrangementPhase() {
+    if (!this.isArrangementPhase()) return;
+    this.draggedPiece = null;
+    this.dragStart = null;
+    this.arrangedCantaIds.clear();
+    this.match = advanceFreeKickSetup(this.match);
+
+    if (this.match.phase === 'free-kick-defender-setup') {
+      this.beginArrangementPhase();
+      return;
+    }
+
+    if (this.match.phase === 'free-kick-shot') {
+      this.releaseSetPieceBodies();
+      this.foulText = '';
+      this.setStatus(
+        teamLabel(this.match.activeTeam) + ' FREE KICK — TAKE YOUR SHOT',
+        'The defence is set. Choose one of your cantas and flick towards the ball.'
+      );
+      this.refreshControls();
+    }
+  }
+
+  private updateArrangementMoveCount() {
+    const counter = document.querySelector('#arrangement-count');
+    if (counter) counter.textContent = this.arrangedCantaIds.size + ' / ' + MAX_ARRANGED_CANTAS + ' cantas moved';
   }
 
   private setStatus(label: string, helperText: string) {
@@ -316,22 +485,34 @@ export class CantaBallScene extends Phaser.Scene {
     const cancel = document.querySelector<HTMLButtonElement>('#cancel-button');
     const teamChip = document.querySelector('#team-chip');
     const powerInput = document.querySelector<HTMLInputElement>('#power');
+    const arrangementPanel = document.querySelector<HTMLElement>('#arrangement-panel');
+    const arrangementDone = document.querySelector<HTMLButtonElement>('#arrangement-done');
+    const arranging = this.isArrangementPhase();
 
     if (teamChip) teamChip.textContent = teamLabel(this.match.activeTeam);
+    if (arrangementPanel) arrangementPanel.hidden = !arranging;
+    if (arrangementDone) arrangementDone.disabled = !arranging;
     if (instruction) {
-      instruction.textContent = this.match.phase === 'set-piece-pending'
-        ? 'Free kick awarded'
-        : this.selected ? 'Aim your flick' : 'Select a canta';
+      if (arranging) instruction.textContent = this.setupTeam() + ' team setup';
+      else if (this.match.phase === 'free-kick-shot') instruction.textContent = 'Take the free kick';
+      else instruction.textContent = this.selected ? 'Aim your flick' : 'Select a canta';
     }
 
-    if (helper && !this.foulText && !this.shotInProgress) {
-      helper.textContent = this.match.phase === 'set-piece-pending'
-        ? 'The free kick is waiting for the set-piece arrangement system.'
-        : 'Choose one of your ' + teamLabel(this.match.activeTeam).toLowerCase() + ' outfield cantas. Your selected canta moves and strikes the ball.';
+    if (helper && !this.shotInProgress) {
+      if (arranging) {
+        helper.textContent = 'Drag up to three ' + teamLabel(this.setupTeam()).toLowerCase() + ' cantas to arrange the free kick.';
+      } else if (this.match.phase === 'free-kick-shot') {
+        helper.textContent = 'The defensive wall is set. Select your canta and take the free kick.';
+      } else if (!this.foulText) {
+        helper.textContent = 'Choose one of your ' + teamLabel(this.match.activeTeam).toLowerCase() + ' outfield cantas. Your selected canta moves and strikes the ball.';
+      }
     }
 
-    if (flick) flick.disabled = !this.selected || this.shotInProgress || this.match.phase !== 'ready';
+    if (flick) flick.disabled = !this.selected || this.shotInProgress ||
+      (this.match.phase !== 'ready' && this.match.phase !== 'free-kick-shot');
     if (cancel) cancel.disabled = !this.selected || this.shotInProgress;
-    if (powerInput) powerInput.disabled = this.shotInProgress || this.match.phase !== 'ready';
+    if (powerInput) powerInput.disabled = this.shotInProgress || arranging ||
+      (this.match.phase !== 'ready' && this.match.phase !== 'free-kick-shot');
+    this.updateArrangementMoveCount();
   }
 }

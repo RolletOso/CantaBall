@@ -43,3 +43,12 @@ button:disabled { opacity: .38; cursor: not-allowed; }
   .prototype-note { margin-top: 13px; }
 }
 @media (max-width: 390px) { .match-status { font-size: 8px; } .brand { font-size: 15px; } }
+
+.arrangement-panel { margin-top: 18px; padding: 14px; border: 1px solid #d5f36a55; border-radius: 12px; background: #d5f36a0d; }
+.arrangement-panel[hidden] { display: none; }
+.arrangement-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.arrangement-heading .eyebrow { margin: 0; }
+.arrangement-timer { color: #d5f36a; font-size: 22px; font-weight: 900; font-variant-numeric: tabular-nums; }
+.arrangement-count { margin: 12px 0 5px; font-size: 12px; font-weight: 800; }
+.arrangement-help { margin: 0 0 12px; color: #b4c4ba; font-size: 11px; line-height: 1.45; }
+.arrangement-button { width: 100%; min-height: 44px; }
