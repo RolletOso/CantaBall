@@ -17,6 +17,9 @@ CantaBall is a browser-based, mobile-first digital adaptation of the childhood b
 - Production build: `npm run build`, which runs TypeScript checking and Vite production bundling.
 - All work is developed on branches and integrated through pull requests. Never push feature work directly to `main`.
 
+### PR #5 — Project handover
+- Added this maintained handover document with game concept, agreed rules, completed milestones, gaps, risks and roadmap.
+
 ## Merged milestones
 
 ### PR #1 — Initial browser prototype
@@ -96,13 +99,15 @@ CantaBall is a browser-based, mobile-first digital adaptation of the childhood b
 
 - PR #4 was merged after its retried GitHub Actions build passed.
 - Merge commit: `e89c2b178af5ca78abb959f47ee82a30274883d1`.
+- PR #5 added this handover document and was merged after its production build passed.
+- PR #5 merge commit: `a5f2d0f0a71c9cbcd0e1d62303304214c70c97c2`.
 - The build workflow checks dependency installation, TypeScript and production bundling.
 - A green build is not a substitute for real gameplay testing on desktop and phones.
 
 ## Remaining roadmap
 
 1. Goalkeeper movement and catching, including the agreed extra goalkeeper move when the ball is in that team's half.
-2. Goal detection, score updates, kickoff and goal-kick restarts.
+2. Goal detection, score updates, kickoff and goal-kick restarts (currently being implemented).
 3. Corners and remaining out-of-play rules.
 4. Refine turn retention and free-kick edge cases.
 5. Improve aim/contact/trajectory indicators and rebound physics.
