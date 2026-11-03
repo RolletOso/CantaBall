@@ -301,15 +301,54 @@ export class CantaBallScene extends Phaser.Scene {
     const start = this.selected.body.position;
     const dx = start.x - this.aimPoint.x;
     const dy = start.y - this.aimPoint.y;
-    const length = Math.hypot(dx,dy);
-    if (length < 2) return;
+    const pullLength = Math.hypot(dx, dy);
+    if (pullLength < 2) return;
 
-    const ux = dx/length, uy = dy/length;
-    this.graphics.lineStyle(2, 0xffffff, 0.88);
-    this.graphics.lineBetween(start.x-ux*70, start.y-uy*70, start.x, start.y);
-    this.graphics.fillStyle(0xd5f36a, 1).fillCircle(start.x-ux*70, start.y-uy*70, 4);
-    this.graphics.lineStyle(2, 0xd5f36a, 0.82);
-    this.graphics.lineBetween(start.x, start.y, start.x+ux*54, start.y+uy*54);
+    const ux = dx / pullLength;
+    const uy = dy / pullLength;
+    const pullHandleDistance = 48;
+
+    // Keep the familiar pull-back marker so players can read flick direction.
+    this.graphics.lineStyle(2, 0xffffff, 0.82);
+    this.graphics.lineBetween(
+      start.x - ux * pullHandleDistance,
+      start.y - uy * pullHandleDistance,
+      start.x,
+      start.y
+    );
+    this.graphics.fillStyle(0xd5f36a, 1).fillCircle(
+      start.x - ux * pullHandleDistance,
+      start.y - uy * pullHandleDistance,
+      4
+    );
+
+    if (this.selected.kind !== 'keeper') {
+      // Connect the selected canta to the ball so the intended contact is obvious.
+      this.graphics.lineStyle(1.5, 0xffffff, 0.38);
+      this.graphics.lineBetween(start.x, start.y, this.ball.position.x, this.ball.position.y);
+      this.graphics.lineStyle(1.5, 0xd5f36a, 0.9);
+      this.graphics.strokeCircle(this.ball.position.x, this.ball.position.y, BALL_RADIUS + 4);
+    }
+
+    // Short, power-scaled preview from the ball; this is an initial direction cue,
+    // not a promise of the final path after rebounds.
+    const previewLength = 24 + this.power * 34;
+    const previewStart = this.selected.kind === 'keeper' ? start : this.ball.position;
+    const endX = previewStart.x + ux * previewLength;
+    const endY = previewStart.y + uy * previewLength;
+    this.graphics.lineStyle(2.5, 0xd5f36a, 0.92);
+    this.graphics.lineBetween(previewStart.x, previewStart.y, endX, endY);
+    const arrowSize = 6;
+    const sideX = -uy * arrowSize;
+    const sideY = ux * arrowSize;
+    this.graphics.fillStyle(0xd5f36a, 1);
+    this.graphics.fillTriangle(
+      endX, endY,
+      endX - ux * arrowSize * 1.6 + sideX,
+      endY - uy * arrowSize * 1.6 + sideY,
+      endX - ux * arrowSize * 1.6 - sideX,
+      endY - uy * arrowSize * 1.6 - sideY
+    );
   }
 
   private flick() {
