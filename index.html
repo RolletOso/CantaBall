@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#10251d" />
+    <meta name="description" content="CantaBall — the classic bottle-cap football game, brought to your browser." />
+    <title>CantaBall</title>
+  </head>
+  <body>
+    <div id="app">
+      <header class="topbar">
+        <div class="brand"><span class="brand-mark">C</span><span>CantaBall</span></div>
+        <div class="match-status"><span class="live-dot"></span><span id="turn-label">BLUE TEAM'S TURN</span></div>
+        <div class="score"><span id="blue-score">0</span><span class="score-dash">–</span><span id="red-score">0</span></div>
+      </header>
+      <main class="game-layout">
+        <section class="pitch-panel" aria-label="Football pitch">
+          <div id="game-container"></div>
+        </section>
+        <section class="controls">
+          <div class="control-heading">
+            <div><p class="eyebrow">YOUR MOVE</p><h1 id="instruction">Select a canta</h1></div>
+            <span class="turn-chip" id="team-chip">BLUE</span>
+          </div>
+          <p class="helper" id="helper-text">Choose one of your cantas, aim towards the ball, then flick.</p>
+          <label class="power-label" for="power"><span>Flick power</span><span id="power-value">45%</span></label>
+          <input id="power" type="range" min="10" max="100" value="45" />
+          <div class="action-row">
+            <button id="cancel-button" class="secondary" type="button" disabled>Cancel</button>
+            <button id="flick-button" class="primary" type="button" disabled>Flick canta</button>
+          </div>
+          <p class="prototype-note">EARLY PLAYTEST BUILD <span>·</span> Rules and physics are still being tuned.</p>
+        </section>
+      </main>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
