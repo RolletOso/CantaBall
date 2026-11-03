@@ -52,3 +52,42 @@ button:disabled { opacity: .38; cursor: not-allowed; }
 .arrangement-count { margin: 12px 0 5px; font-size: 12px; font-weight: 800; }
 .arrangement-help { margin: 0 0 12px; color: #b4c4ba; font-size: 11px; line-height: 1.45; }
 .arrangement-button { width: 100%; min-height: 44px; }
+
+/* Touch-first refinements: preserve the pitch interaction area and make controls
+   comfortable to use without changing the desktop presentation. */
+#game-container,
+#game-container canvas {
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+button,
+input[type="range"] {
+  touch-action: manipulation;
+}
+button:focus-visible,
+input:focus-visible {
+  outline: 3px solid #d5f36a;
+  outline-offset: 3px;
+}
+@media (max-width: 760px) {
+  body {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  #app {
+    padding-left: max(10px, env(safe-area-inset-left));
+    padding-right: max(10px, env(safe-area-inset-right));
+  }
+  .controls {
+    padding-bottom: max(16px, env(safe-area-inset-bottom));
+  }
+  button {
+    min-height: 48px;
+  }
+  .action-row {
+    gap: 12px;
+  }
+  .action-row button {
+    flex: 1;
+  }
+}
