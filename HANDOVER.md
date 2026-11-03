@@ -20,7 +20,18 @@ CantaBall is a browser-based, mobile-first digital adaptation of the childhood b
 ### PR #5 — Project handover
 - Added this maintained handover document with game concept, agreed rules, completed milestones, gaps, risks and roadmap.
 
-### PR #6 — Scoring and basic restarts (in progress)
+### PR #6 — Scoring and basic restarts
+- Opened goal mouths in both end walls.
+- Detects goals and updates the scoreboard.
+- Gives the scoring team the next turn and requires its central midfielder to take kickoff.
+- Awards a goal kick to the defending team when the ball crosses the end line outside the goal.
+- Goal-kick placement and retaining piece positions are initial prototype choices for playtesting.
+
+### PR #7 — Goalkeeper moves and catches (in progress)
+- When the ball is in the active team's half, that team gets a goalkeeper flick first, followed by its outfield canta move.
+- Goalkeeper movement is constrained to its own goal area.
+- A goalkeeper collision catches and holds the ball instead of allowing a normal rebound.
+- After a catch, the goalkeeper's team gets an outfield move to play the ball back into the pitch.
 - Opens the two goal mouths in the end walls.
 - Detects a ball crossing the goal line inside the goal mouth and awards a goal to the attacking team.
 - Updates the scoreboard and gives the scoring team the next turn.
@@ -114,8 +125,8 @@ CantaBall is a browser-based, mobile-first digital adaptation of the childhood b
 
 ## Remaining roadmap
 
-1. Goalkeeper movement and catching, including the agreed extra goalkeeper move when the ball is in that team's half.
-2. Goal detection, score updates, kickoff and goal-kick restarts (PR #6 implementation; needs verification and playtesting).
+1. Goalkeeper movement and catching (PR #7 implementation; needs verification and playtesting).
+2. Goal detection, score updates, kickoff and goal-kick restarts (implemented in PR #6; needs playtesting).
 3. Corners and remaining out-of-play rules.
 4. Refine turn retention and free-kick edge cases.
 5. Improve aim/contact/trajectory indicators and rebound physics.
@@ -129,7 +140,8 @@ CantaBall is a browser-based, mobile-first digital adaptation of the childhood b
 - The current scene is a prototype; there is no complete match loop yet.
 - Goalkeeper catching and the two-move goalkeeper/outfield turn are not implemented.
 - Corner rules and out-of-play situations other than end-line goal/goal-kick decisions are not implemented.
-- Goal detection and goal-kick logic in PR #6 still require real gameplay testing.
+- Goal detection and goal-kick logic from PR #6 still require real gameplay testing.
+- Goalkeeper catch, held-ball release and the extra goalkeeper move from PR #7 require real gameplay testing.
 - The exact ball-first foul rule is approximated using collision events; simultaneous ball/player contacts need careful gameplay testing.
 - Set-piece minimum distances (attacker 26, defender 52 game units) are initial tuning values, not final rule decisions.
 - Arrangement controls and touch dragging need real-device testing.
