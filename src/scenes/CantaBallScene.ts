@@ -208,6 +208,10 @@ export class CantaBallScene extends Phaser.Scene {
     return this.match.phase === 'free-kick-attacker-setup' || this.match.phase === 'free-kick-defender-setup';
   }
 
+  private getTouchSelectionPadding() {
+    return window.matchMedia('(pointer: coarse)').matches ? 32 : 7;
+  }
+
   private setupTeam(): Team {
     return this.match.phase === 'free-kick-defender-setup'
       ? otherTeam(this.match.activeTeam)
@@ -223,7 +227,7 @@ export class CantaBallScene extends Phaser.Scene {
       const hit = this.pieces.find(piece =>
         piece.team === team &&
         piece.kind === 'outfield' &&
-        Phaser.Math.Distance.Between(point.x, point.y, piece.body.position.x, piece.body.position.y) <= CANTA_RADIUS + 8
+        Phaser.Math.Distance.Between(point.x, point.y, piece.body.position.x, piece.body.position.y) <= CANTA_RADIUS + this.getTouchSelectionPadding()
       );
       if (!hit) return;
       if (!this.arrangedCantaIds.has(hit.id) && this.arrangedCantaIds.size >= MAX_ARRANGED_CANTAS) return;
@@ -238,10 +242,10 @@ export class CantaBallScene extends Phaser.Scene {
     const hit = this.pieces.find(piece => {
       if (piece.team !== this.match.activeTeam) return false;
       if (this.keeperMovePending) return piece.kind === 'keeper' &&
-        Phaser.Math.Distance.Between(point.x, point.y, piece.body.position.x, piece.body.position.y) <= KEEPER_RADIUS + 8;
+        Phaser.Math.Distance.Between(point.x, point.y, piece.body.position.x, piece.body.position.y) <= KEEPER_RADIUS + this.getTouchSelectionPadding();
       if (piece.kind !== 'outfield') return false;
       if (this.match.phase === 'kickoff-ready' && piece.id !== this.match.activeTeam + '-10') return false;
-      return Phaser.Math.Distance.Between(point.x, point.y, piece.body.position.x, piece.body.position.y) <= CANTA_RADIUS + 7;
+      return Phaser.Math.Distance.Between(point.x, point.y, piece.body.position.x, piece.body.position.y) <= CANTA_RADIUS + this.getTouchSelectionPadding();
     });
 
     if (hit) {
