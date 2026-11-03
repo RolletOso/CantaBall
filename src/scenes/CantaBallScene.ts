@@ -218,8 +218,8 @@ export class CantaBallScene extends Phaser.Scene {
     }
 
     for (const pair of event.pairs) {
-      const a = pair.bodyA;
-      const b = pair.bodyB;
+      const a = pair.bodyA as unknown as { id: number; label?: string; isStatic: boolean };
+      const b = pair.bodyB as unknown as { id: number; label?: string; isStatic: boolean };
       if (a.label === 'ball' || b.label === 'ball') continue;
       const aPiece = this.pieces.find(p => p.body.id === a.id);
       const bPiece = this.pieces.find(p => p.body.id === b.id);
