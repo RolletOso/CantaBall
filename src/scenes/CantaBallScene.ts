@@ -54,6 +54,9 @@ export class CantaBallScene extends Phaser.Scene {
   private lastDisplayedSeconds = -1;
   private foulBallPosition: Position | null = null;
   private ballFrozenForSetPiece = false;
+  private keeperMovePending = false;
+  private shotByKeeper = false;
+  private keeperHasBall = false;
   private match: MatchState = { ...INITIAL_MATCH_STATE, scores: { ...INITIAL_MATCH_STATE.scores } };
   private graphics!: Phaser.GameObjects.Graphics;
 
@@ -87,6 +90,7 @@ export class CantaBallScene extends Phaser.Scene {
     this.graphics.clear();
     this.drawPieces();
     this.drawBall();
+    this.clampGoalkeeperPositions();
     this.drawAim();
 
     if (this.isArrangementPhase()) {
@@ -232,7 +236,10 @@ export class CantaBallScene extends Phaser.Scene {
     if (this.shotInProgress ||
       (this.match.phase !== 'ready' && this.match.phase !== 'free-kick-shot' && this.match.phase !== 'kickoff-ready')) return;
     const hit = this.pieces.find(piece => {
-      if (piece.team !== this.match.activeTeam || piece.kind !== 'outfield') return false;
+      if (piece.team !== this.match.activeTeam) return false;
+      if (this.keeperMovePending) return piece.kind === 'keeper' &&
+        Phaser.Math.Distance.Between(point.x, point.y, piece.body.position.x, piece.body.position.y) <= KEEPER_RADIUS + 8;
+      if (piece.kind !== 'outfield') return false;
       if (this.match.phase === 'kickoff-ready' && piece.id !== this.match.activeTeam + '-10') return false;
       return Phaser.Math.Distance.Between(point.x, point.y, piece.body.position.x, piece.body.position.y) <= CANTA_RADIUS + 7;
     });
@@ -309,6 +316,8 @@ export class CantaBallScene extends Phaser.Scene {
     if (!this.selected || !this.aimPoint || this.shotInProgress ||
       (this.match.phase !== 'ready' && this.match.phase !== 'free-kick-shot' && this.match.phase !== 'kickoff-ready')) return;
     if (this.selected.team !== this.match.activeTeam) return;
+    if (this.keeperMovePending && this.selected.kind !== 'keeper') return;
+    if (!this.keeperMovePending && this.selected.kind === 'keeper') return;
 
     const start = this.selected.body.position;
     const dx = start.x - this.aimPoint.x;
@@ -316,6 +325,8 @@ export class CantaBallScene extends Phaser.Scene {
     const length = Math.hypot(dx,dy);
     if (length < 4) return;
 
+    this.shotByKeeper = this.selected.kind === 'keeper';
+    if (this.keeperHasBall) this.releaseCaughtBall();
     this.match = startShot(this.match, this.selected.id);
     this.cantasThatTouchedBallThisShot.clear();
     this.foulText = '';
@@ -330,6 +341,20 @@ export class CantaBallScene extends Phaser.Scene {
 
   private onCollisionStart(event: MatterJS.IEventCollision<MatterJS.BodyType>) {
     if (!this.shotInProgress || this.match.phase !== 'shot' || this.match.foulAwardedTo) return;
+
+    // A goalkeeper catches rather than rebounds the ball.
+    for (const pair of event.pairs) {
+      const a = pair.bodyA as unknown as { id: number; label?: string };
+      const b = pair.bodyB as unknown as { id: number; label?: string };
+      if (a.label !== 'ball' && b.label !== 'ball') continue;
+      const other = a.label === 'ball' ? b : a;
+      if (other.label !== 'keeper') continue;
+      const keeper = this.pieces.find(piece => piece.body.id === other.id && piece.kind === 'keeper');
+      if (keeper) {
+        this.handleKeeperCatch(keeper);
+        return;
+      }
+    }
 
     for (const pair of event.pairs) {
       const a = pair.bodyA as unknown as { id: number; label?: string };
@@ -365,6 +390,77 @@ export class CantaBallScene extends Phaser.Scene {
         );
       }
       break;
+    }
+  }
+
+
+  private handleKeeperCatch(keeper: Piece) {
+    this.shotInProgress = false;
+    this.shotByKeeper = false;
+    this.settledSince = null;
+    this.keeperMovePending = false;
+    this.keeperHasBall = true;
+    this.stopAllBodies();
+    const inward = keeper.team === 'blue' ? 1 : -1;
+    this.matter.body.setStatic(this.ball, true);
+    this.matter.body.setPosition(this.ball, {
+      x: keeper.body.position.x + inward * (KEEPER_RADIUS + BALL_RADIUS + 2),
+      y: keeper.body.position.y,
+    });
+    this.match = {
+      ...this.match,
+      activeTeam: keeper.team,
+      phase: 'ready',
+      selectedCantaId: null,
+      foulAwardedTo: null,
+      isFreeKickShot: false,
+      isKickoffShot: false,
+    };
+    this.clearSelection();
+    this.setStatus(
+      teamLabel(keeper.team) + ' GOALKEEPER CATCH',
+      'Your goalkeeper has caught the ball. Choose an outfield canta to play it back into the pitch.'
+    );
+  }
+
+  private releaseCaughtBall() {
+    if (!this.keeperHasBall) return;
+    this.matter.body.setStatic(this.ball, false);
+    this.matter.body.setVelocity(this.ball, { x: 0, y: 0 });
+    this.matter.body.setAngularVelocity(this.ball, 0);
+    this.keeperHasBall = false;
+  }
+
+  private ballIsInTeamHalf(team: Team) {
+    return team === 'blue' ? this.ball.position.x < W / 2 : this.ball.position.x > W / 2;
+  }
+
+  private prepareTurn() {
+    this.keeperMovePending = !this.keeperHasBall && this.ballIsInTeamHalf(this.match.activeTeam);
+    if (this.keeperMovePending) {
+      this.setStatus(
+        teamLabel(this.match.activeTeam) + ' GOALKEEPER MOVE',
+        'The ball is in your half. Move your goalkeeper first, then take your outfield canta move.'
+      );
+    } else {
+      this.setStatus(
+        teamLabel(this.match.activeTeam) + " TEAM'S TURN",
+        'Select one of your own outfield cantas, aim, adjust power and flick.'
+      );
+    }
+  }
+
+  private clampGoalkeeperPositions() {
+    for (const piece of this.pieces) {
+      if (piece.kind !== 'keeper') continue;
+      const minX = piece.team === 'blue' ? PITCH.left + KEEPER_RADIUS : W / 2 + 280;
+      const maxX = piece.team === 'blue' ? PITCH.left + 118 : PITCH.right - KEEPER_RADIUS;
+      const x = Phaser.Math.Clamp(piece.body.position.x, minX, maxX);
+      const y = Phaser.Math.Clamp(piece.body.position.y, 255, 345);
+      if (x !== piece.body.position.x || y !== piece.body.position.y) {
+        this.matter.body.setPosition(piece.body, { x, y });
+        this.matter.body.setVelocity(piece.body, { x: 0, y: 0 });
+      }
     }
   }
 
@@ -408,6 +504,7 @@ export class CantaBallScene extends Phaser.Scene {
     this.stopAllBodies();
 
     if (isGoal) {
+      this.keeperMovePending = false;
       const scoringTeam: Team = crossedLeft ? 'red' : 'blue';
       this.match = recordGoal(this.match, scoringTeam);
       this.resetBall(W / 2, H / 2);
@@ -434,6 +531,7 @@ export class CantaBallScene extends Phaser.Scene {
       isKickoffShot: false,
     };
     this.resetBall(goalKickX, H / 2);
+    this.prepareTurn();
     this.setStatus(
       teamLabel(defendingTeam) + ' GOAL KICK',
       'The ball went over the end line outside the goal. The defending team has the goal kick.'
@@ -466,7 +564,16 @@ export class CantaBallScene extends Phaser.Scene {
   private completeCurrentShot() {
     this.shotInProgress = false;
     this.settledSince = null;
-    this.match = finishShot(this.match);
+    const wasKeeperMove = this.shotByKeeper && !this.match.foulAwardedTo;
+    this.shotByKeeper = false;
+    if (this.match.foulAwardedTo) {
+      this.match = finishShot(this.match);
+    } else if (wasKeeperMove) {
+      this.match = { ...this.match, phase: 'ready', selectedCantaId: null };
+      this.keeperMovePending = false;
+    } else {
+      this.match = finishShot(this.match);
+    }
     this.clearSelection();
 
     if (this.match.phase === 'free-kick-attacker-setup') {
@@ -477,7 +584,16 @@ export class CantaBallScene extends Phaser.Scene {
     if (this.match.phase === 'ready') {
       this.foulBallPosition = null;
       this.foulText = '';
-      this.setStatus(teamLabel(this.match.activeTeam) + " TEAM'S TURN", 'Select one of your own outfield cantas, aim, adjust power and flick.');
+      if (wasKeeperMove) {
+        this.setStatus(
+          teamLabel(this.match.activeTeam) + ' OUTFIELD MOVE',
+          'Goalkeeper move complete. Now select one of your outfield cantas and take your move.'
+        );
+      } else {
+        this.foulBallPosition = null;
+        this.foulText = '';
+        this.prepareTurn();
+      }
     }
   }
 
@@ -566,6 +682,7 @@ export class CantaBallScene extends Phaser.Scene {
       if (arranging) instruction.textContent = this.setupTeam() + ' team setup';
       else if (this.match.phase === 'free-kick-shot') instruction.textContent = 'Take the free kick';
       else if (this.match.phase === 'kickoff-ready') instruction.textContent = 'Kickoff pass';
+      else if (this.keeperMovePending) instruction.textContent = 'Move goalkeeper';
       else instruction.textContent = this.selected ? 'Aim your flick' : 'Select a canta';
     }
 
@@ -576,6 +693,8 @@ export class CantaBallScene extends Phaser.Scene {
         helper.textContent = 'The defensive wall is set. Select your canta and take the free kick.';
       } else if (this.match.phase === 'kickoff-ready') {
         helper.textContent = 'Your team scored. Select your central midfielder to make the kickoff pass.';
+      } else if (this.keeperMovePending) {
+        helper.textContent = 'The ball is in your half. Select your goalkeeper, aim and flick it into position before your outfield move.';
       } else if (!this.foulText) {
         helper.textContent = 'Choose one of your ' + teamLabel(this.match.activeTeam).toLowerCase() + ' outfield cantas. Your selected canta moves and strikes the ball.';
       }
