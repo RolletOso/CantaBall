@@ -13,7 +13,7 @@ const H = 600;
 const PITCH = { left: 42, right: 858, top: 38, bottom: 562 };
 const BALL_RADIUS = 7;
 const CANTA_RADIUS = 12;
-const KEEPER_RADIUS = 8;
+const KEEPER_RADIUS = 15;
 
 export class CantaBallScene extends Phaser.Scene {
   private pieces: Piece[] = [];
@@ -24,6 +24,7 @@ export class CantaBallScene extends Phaser.Scene {
   private shotInProgress = false;
   private foulText = '';
   private lastFoulAt = 0;
+  private cantasThatTouchedBallThisShot = new Set<number>();
   private graphics!: Phaser.GameObjects.Graphics;
 
   constructor() { super('CantaBallScene'); }
@@ -111,19 +112,10 @@ export class CantaBallScene extends Phaser.Scene {
     blue.forEach(([x,y], i) => this.addPiece('blue-'+(i+1), 'blue', 'outfield', x, y, CANTA_RADIUS));
     red.forEach(([x,y], i) => this.addPiece('red-'+(i+1), 'red', 'outfield', x, y, CANTA_RADIUS));
 
-    // Six smaller caps form each goalkeeper: three across, two deep.
-    this.createKeeper('blue', PITCH.left + 21, H/2);
-    this.createKeeper('red', PITCH.right - 21, H/2);
-  }
-
-  private createKeeper(team: Team, x: number, y: number) {
-    const offsets: Array<[number,number]> = [
-      [-9,-17],[9,-17],[27,-17],[-9,17],[9,17],[27,17],
-    ];
-    offsets.forEach(([dx,dy], i) => {
-      const direction = team === 'blue' ? 1 : -1;
-      this.addPiece(team+'-keeper-'+(i+1), team, 'keeper', x + dx*direction, y+dy, KEEPER_RADIUS);
-    });
+    // Temporary goalkeeper placeholder: one slightly wider canta.
+    // Replace it with the custom six-canta artwork when that design is ready.
+    this.addPiece('blue-keeper', 'blue', 'keeper', PITCH.left + 22, H/2, KEEPER_RADIUS);
+    this.addPiece('red-keeper', 'red', 'keeper', PITCH.right - 22, H/2, KEEPER_RADIUS);
   }
 
   private createBall() {
@@ -205,6 +197,7 @@ export class CantaBallScene extends Phaser.Scene {
     const length = Math.hypot(dx,dy);
     if (length < 4) return;
     const force = 0.0009 + this.power*0.0031;
+    this.cantasThatTouchedBallThisShot.clear();
     this.matter.applyForce(this.selected.body, start, { x: dx/length*force, y: dy/length*force });
     this.shotInProgress = true;
     this.clearSelection();
@@ -214,23 +207,36 @@ export class CantaBallScene extends Phaser.Scene {
   }
 
   private onCollisionStart(event: MatterJS.IEventCollision<MatterJS.BodyType>) {
+    // Record ball contacts before checking canta-to-canta contacts in this step.
     for (const pair of event.pairs) {
       const a = pair.bodyA;
       const b = pair.bodyB;
-      if (a.label === 'ball' || b.label === 'ball') {
-        // Ball-to-canta and ball-to-keeper contact is a normal rebound, never a foul.
-        continue;
-      }
+      if (a.label !== 'ball' && b.label !== 'ball') continue;
+      const other = a.label === 'ball' ? b : a;
+      const piece = this.pieces.find(p => p.body.id === other.id);
+      if (piece) this.cantasThatTouchedBallThisShot.add(piece.body.id);
+    }
+
+    for (const pair of event.pairs) {
+      const a = pair.bodyA;
+      const b = pair.bodyB;
+      if (a.label === 'ball' || b.label === 'ball') continue;
       const aPiece = this.pieces.find(p => p.body.id === a.id);
       const bPiece = this.pieces.find(p => p.body.id === b.id);
-      if (!aPiece || !bPiece || aPiece.kind === 'keeper' && bPiece.kind === 'keeper') continue;
-      if (aPiece.body.isStatic || bPiece.body.isStatic) continue;
+      if (!aPiece || !bPiece || aPiece.body.isStatic || bPiece.body.isStatic) continue;
+
+      // Contact is legal if either canta has already played the ball this shot.
+      const eitherCantaTouchedBall =
+        this.cantasThatTouchedBallThisShot.has(aPiece.body.id) ||
+        this.cantasThatTouchedBallThisShot.has(bPiece.body.id);
+      if (eitherCantaTouchedBall) continue;
+
       const now = this.time.now;
       if (now - this.lastFoulAt < 700) continue;
       this.lastFoulAt = now;
-      this.foulText = 'FOUL: cantas collided';
+      this.foulText = 'FOUL: cantas collided before ball contact';
       const helper = document.querySelector('#helper-text');
-      if (helper) helper.textContent = 'Foul detected. The ball stays here for a set-piece restart (next development step).';
+      if (helper) helper.textContent = 'Foul: the cantas collided before either touched the ball. Set-piece restart is the next development step.';
       const instruction = document.querySelector('#instruction');
       if (instruction) instruction.textContent = 'Foul detected';
       const turn = document.querySelector('#turn-label');
