@@ -5,7 +5,8 @@ export type MatchPhase =
   | 'shot'
   | 'free-kick-attacker-setup'
   | 'free-kick-defender-setup'
-  | 'free-kick-shot';
+  | 'free-kick-shot'
+  | 'kickoff-ready';
 
 export interface MatchState {
   scores: Record<Team, number>;
@@ -14,6 +15,7 @@ export interface MatchState {
   selectedCantaId: string | null;
   foulAwardedTo: Team | null;
   isFreeKickShot: boolean;
+  isKickoffShot: boolean;
 }
 
 export const INITIAL_MATCH_STATE: MatchState = {
@@ -23,6 +25,7 @@ export const INITIAL_MATCH_STATE: MatchState = {
   selectedCantaId: null,
   foulAwardedTo: null,
   isFreeKickShot: false,
+  isKickoffShot: false,
 };
 
 export function otherTeam(team: Team): Team {
@@ -30,7 +33,7 @@ export function otherTeam(team: Team): Team {
 }
 
 export function startShot(state: MatchState, cantaId: string): MatchState {
-  if (state.phase !== 'ready' && state.phase !== 'free-kick-shot') return state;
+  if (state.phase !== 'ready' && state.phase !== 'free-kick-shot' && state.phase !== 'kickoff-ready') return state;
 
   return {
     ...state,
@@ -38,6 +41,7 @@ export function startShot(state: MatchState, cantaId: string): MatchState {
     selectedCantaId: cantaId,
     foulAwardedTo: null,
     isFreeKickShot: state.phase === 'free-kick-shot',
+    isKickoffShot: state.phase === 'kickoff-ready',
   };
 }
 
@@ -62,10 +66,11 @@ export function finishShot(state: MatchState): MatchState {
       phase: 'free-kick-attacker-setup',
       selectedCantaId: null,
       isFreeKickShot: false,
+      isKickoffShot: false,
     };
   }
 
-  if (state.isFreeKickShot) {
+  if (state.isFreeKickShot || state.isKickoffShot) {
     return {
       ...state,
       activeTeam: otherTeam(state.activeTeam),
@@ -73,6 +78,7 @@ export function finishShot(state: MatchState): MatchState {
       selectedCantaId: null,
       foulAwardedTo: null,
       isFreeKickShot: false,
+      isKickoffShot: false,
     };
   }
 
@@ -94,6 +100,19 @@ export function advanceFreeKickSetup(state: MatchState): MatchState {
   }
 
   return state;
+}
+
+export function recordGoal(state: MatchState, scoringTeam: Team): MatchState {
+  return {
+    ...state,
+    scores: { ...state.scores, [scoringTeam]: state.scores[scoringTeam] + 1 },
+    activeTeam: scoringTeam,
+    phase: 'kickoff-ready',
+    selectedCantaId: null,
+    foulAwardedTo: null,
+    isFreeKickShot: false,
+    isKickoffShot: false,
+  };
 }
 
 export function teamLabel(team: Team): string {
